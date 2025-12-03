@@ -36,7 +36,7 @@ NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
 QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
-OLLAMA_CLOUD_HOST = os.getenv("OLLAMA_CLOUD_HOST", "https://ollama.com")
+OLLAMA_CLOUD_HOST = os.getenv("OLLAMA_CLOUD_HOST", "https://api.ollama.com")
 OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY")
 
 # JARVIS System Prompt
