@@ -245,8 +245,95 @@ async def root():
         "service": "JARVIS Backend API",
         "version": "1.0.0",
         "status": "running",
-        "endpoints": ["/api/chat", "/api/memory/search", "/api/conversations", "/api/health"]
+        "endpoints": ["/api/chat", "/api/memory/search", "/api/conversations", "/api/health", "/api/sync"]
     }
+
+
+@app.post("/api/sync")
+async def sync_knowledge():
+    """Sync JARVIS knowledge - analyzes recent conversations and generates insights."""
+    try:
+        sync_results = {
+            "timestamp": datetime.now().isoformat(),
+            "conversations_analyzed": 0,
+            "insights_generated": [],
+            "status": "success"
+        }
+
+        # Get recent conversations to analyze
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                # Count recent conversations (last 24h)
+                cur.execute("""
+                    SELECT COUNT(*) FROM conversations
+                    WHERE updated_at > NOW() - INTERVAL '24 hours'
+                """)
+                recent_count = cur.fetchone()[0]
+                sync_results["conversations_analyzed"] = recent_count
+
+                # Get conversation summaries for analysis
+                cur.execute("""
+                    SELECT c.title, c.message_count,
+                           (SELECT content FROM conversation_messages
+                            WHERE conversation_id = c.id
+                            ORDER BY created_at DESC LIMIT 1) as last_message
+                    FROM conversations c
+                    WHERE c.updated_at > NOW() - INTERVAL '24 hours'
+                    ORDER BY c.updated_at DESC
+                    LIMIT 10
+                """)
+
+                recent_topics = []
+                for row in cur.fetchall():
+                    if row[0]:
+                        recent_topics.append(row[0])
+
+                if recent_topics:
+                    # Generate insights using Ollama Cloud
+                    analysis_prompt = f"""Analyse ces sujets de conversation recents et genere 3 insights cles:
+
+Sujets: {', '.join(recent_topics[:5])}
+
+Reponds en JSON avec le format:
+{{"insights": ["insight1", "insight2", "insight3"]}}"""
+
+                    try:
+                        headers = {"Content-Type": "application/json"}
+                        if OLLAMA_API_KEY:
+                            headers["Authorization"] = f"Bearer {OLLAMA_API_KEY}"
+
+                        async with httpx.AsyncClient(timeout=60.0) as client:
+                            response = await client.post(
+                                f"{OLLAMA_CLOUD_HOST}/api/generate",
+                                headers=headers,
+                                json={
+                                    "model": "gpt-oss:20b",
+                                    "prompt": analysis_prompt,
+                                    "stream": False
+                                }
+                            )
+                            if response.status_code == 200:
+                                ai_response = response.json().get("response", "")
+                                # Try to extract insights
+                                import json
+                                try:
+                                    # Find JSON in response
+                                    start = ai_response.find("{")
+                                    end = ai_response.rfind("}") + 1
+                                    if start >= 0 and end > start:
+                                        insights_data = json.loads(ai_response[start:end])
+                                        sync_results["insights_generated"] = insights_data.get("insights", [])
+                                except:
+                                    sync_results["insights_generated"] = [ai_response[:200]]
+                    except Exception as e:
+                        logger.warning(f"Could not generate AI insights: {e}")
+                        sync_results["insights_generated"] = [f"Analyzed {recent_count} recent conversations"]
+
+        return sync_results
+
+    except Exception as e:
+        logger.error(f"Sync error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/health")
